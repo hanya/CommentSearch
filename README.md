@@ -16,7 +16,8 @@ And also, the plug-in searches in comments that contains
 location informations about the string resources of the office.
 
 [1] http://www.omegat.org/
-[2] 
+
+[2] https://github.com/hanya/trhelper#help-viewer-hacker
 
 ## Usage
 
