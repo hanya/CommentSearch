@@ -19,11 +19,10 @@
 // to trigger searching through HTTP connection.
 
 // server settings
-def port_help = 54378;
 def port_ui = 54398;
+def port_help = 54378;
 
 def mode = "ui"; // or "help"
-
 
 
 import javax.swing.SwingUtilities;
@@ -43,6 +42,37 @@ def jump_to_entry(n) {
 }
 
 
+/** Search in source of entries.
+ *  @param str search text
+ *  @param entries list
+ */
+def source_search(str, entries) {
+    for (int i = 0; i < entries.size(); i++) {
+        def it = entries[i];
+        def source = it.getSrcText();
+        //println(source);
+        //println(source.indexOf(str));
+        if (source && source.indexOf(str) >= 0)
+            return it.entryNum();
+    }
+    return null;
+}
+
+/** Search in target of entries.
+ *  @param str search text
+ *  @param entries list
+ */
+def target_search(str, entries) {
+    for (int i = 0; i < entries.size(); i++) {
+        def it = entries[i];
+        def target = it.getSourceTranslation();
+        if (target && target.indexOf(str) >= 0)
+            return it.entryNum();
+    }
+    return null;
+}
+
+
 /** Search in comment of entries.
  *  @param str search text
  *  @param entries List<SourceTextEntry> to search
@@ -51,7 +81,7 @@ def comment_search(str, entries) {
     for (int i = 0; i < entries.size(); i++) {
         def it = entries[i];
         def comment = it.getComment();
-        if (comment && comment.indexOf(str) > 0) {
+        if (comment && comment.indexOf(str) >= 0) {
             return it.entryNum();
         }
     }
@@ -81,20 +111,20 @@ def file_search(str, file_name) {
             break;
         }
     }
-    if (file != null) {
-        return comment_search(str, file.entries);
-    }
-    return null;
+    return file;
 }
 
 
 /** Search 
  *  @param keyword passed by search_from_http
+ *  @search_type category to search
  */ 
-def keyword_search(keyword) {
+def keyword_search(keyword, search_type) {
     // text/shared/01/online_update.xhp%23hd_id315256.help.text
     // text/shared/01.po online_update.xhp%23hd_id315256.help.text
     // find file
+    //println("keyword_search, search_type: " + search_type);
+    
     def file_name = "";
     def term = "";
     def i = keyword.lastIndexOf("/");
@@ -103,13 +133,22 @@ def keyword_search(keyword) {
         term = keyword.substring(i + 1);
     } else
         return; // illegal search keywords
-    
-    return file_search(term, file_name);
+    def file = file_search(term, file_name);
+    //println((file == null ? "file not found: " : "file found: ") + file_name);
+    //println(term);
+    def entries = file == null ? project.getAllEntries() : file.entries;
+    if (search_type == "locations")
+        return comment_search(term, entries);
+    else if (search_type == "source")
+        return source_search(term, entries);
+    else if (search_type == "target")
+        return target_search(term, entries);
+    return null;
 }
 
 
-def start_keyword_search(keyword) {
-    def n = keyword_search(keyword);
+def start_keyword_search(keyword, search_type) {
+    def n = keyword_search(keyword, search_type);
     if (n != null)
         jump_to_entry(n);
 }
@@ -117,12 +156,13 @@ def start_keyword_search(keyword) {
 
 /** Start searching for keyword through HTTP.
  *  @param keyword passed part of the request
+ *  @search_type category to search in
  */
-def search_from_http(keyword) {
+def search_from_http(keyword, search_type) {
     if (!project.isProjectLoaded()) return;
     if (!keyword.isEmpty()) {
         def searcher = {
-            start_keyword_search(keyword);
+            start_keyword_search(keyword, search_type);
         }
         new Thread(searcher).start();
     }
@@ -142,29 +182,34 @@ import com.sun.net.httpserver.HttpHandler;
 
 // http handler
 def h = {
-    def addr = it.getLocalAddress();
-    if (addr.getPort() == port) {
-        def path = it.getRequestURI().getPath();
-        if (path == "/favicon.ico")
-            return it.sendResponseHeaders(403, 0);
+    def path = it.getRequestURI().getPath();
+    if (path == "/favicon.ico")
+        return it.sendResponseHeaders(403, 0);
+    
+    def out = it.getResponseBody();
+    //println(path);
+    // parse first path as command
+    if (path.startsWith("/locations/")) {
+        search_from_http(path.substring(11), "locations");
         
-        def out = it.getResponseBody();
+        it.sendResponseHeaders(200, _found.length);
+        out.write(_found);
+    } else if (path.startsWith("/source/")) {
+        search_from_http(path.substring(8), "source");
         
-        // parse first path as command
-        if (path.startsWith("/search/")) {
-            search_from_http(path.substring(8));
-            
-            it.sendResponseHeaders(200, _found.length);
-            out.write(_found);
-        } else {
-            // illegal command
-            it.sendResponseHeaders(200, _illegal.length);
-            out.write(_illegal);
-        }
-        out.close();
+        it.sendResponseHeaders(200, _found.length);
+        out.write(_found);
+    } else if (path.startsWith("/target/")) {
+        search_from_http(path.substring(8), "target");
+        
+        it.sendResponseHeaders(200, _found.length);
+        out.write(_found);
     } else {
-        it.sendResponseHeaders(500, 0);
+        // illegal command
+        it.sendResponseHeaders(200, _illegal.length);
+        out.write(_illegal);
     }
+    out.close();
     it.close();
 } as HttpHandler;
 
@@ -175,7 +220,6 @@ def server = null;
 def start_server = {
     if (!running) {
         try {
-            println(mode);
             server = HttpServer.create(
                 new InetSocketAddress((mode == "ui" ? port_ui : port_help)), 0);
             server.createContext("/", h);
@@ -235,7 +279,7 @@ def search_action = {
     def search_text = field.getText();
     if (!search_text.isEmpty()) {
         // Search in the hole project
-        n = comment_search(search_text, project.getAllEntries());
+        def n = comment_search(search_text, project.getAllEntries());
         if (n != null)
             jump_to_entry(n);
     }
@@ -285,6 +329,8 @@ def server_action = {
         stop_server.run();
         def set_btn_label = {
             server_btn.setLabel("Start");
+            ui_radio.setEnabled(true);
+            help_radio.setEnabled(true);
         }
         SwingUtilities.invokeLater(new Thread(set_btn_label));
     } else {
@@ -292,6 +338,8 @@ def server_action = {
         new Thread(start_server).start();
         def set_btn_label = {
             server_btn.setLabel("Stop");
+            ui_radio.setEnabled(false);
+            help_radio.setEnabled(false);
         }
         SwingUtilities.invokeLater(new Thread(set_btn_label));
     }
