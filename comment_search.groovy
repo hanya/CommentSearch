@@ -78,6 +78,7 @@ def target_search(str, entries) {
  *  @param entries List<SourceTextEntry> to search
  */
 def comment_search(str, entries) {
+    //println("Comment Search: " + str + " in " + entries.size);
     for (int i = 0; i < entries.size(); i++) {
         def it = entries[i];
         def comment = it.getComment();
@@ -94,19 +95,20 @@ def comment_search(str, entries) {
  *  @param file_name part of file path
  */
 def file_search(str, file_name) {
-    //println("Comment Search: " + str + " in " + file_name);
+    //println("File Search: " + str + " in " + file_name);
     if (!project.isProjectLoaded())
         return;
     def entries = project.getAllEntries();
     if (entries == null)
         return; // no entry?
     
+    def _file_name = file_name + ".po";
     def file = null;
     def files = project.getProjectFiles();
     for (int i = 0; i < files.size(); i++) {
         // filterFileFormatName is human readable, so unuseful
         def _file = files[i];
-        if (_file.filePath.indexOf(file_name) >= 0 ) {
+        if (_file.filePath.indexOf(_file_name) >= 0 ) {
             file = _file;
             break;
         }
